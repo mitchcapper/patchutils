@@ -839,7 +839,7 @@ static int rediff (const char *original, const char *edited, FILE *out)
 	long line_offset = 0;
 
 	/* Let's take a look at what hunks are in the original diff. */
-	o = xopen (original, "rbm");
+	o = xopen (original, PERF_OPEN_FLAGS);
 	while (!feof (o)) {
 		unsigned long o_count, n_count;
 		struct hunk *newhunk;

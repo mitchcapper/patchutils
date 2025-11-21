@@ -2439,8 +2439,8 @@ main (int argc, char *argv[])
 	} else {
 		if (strcmp (argv[optind], "-") == 0 && strcmp(argv[optind+1], "-") == 0)
 			error (EXIT_FAILURE, 0, "only one input file can come from stdin");
-		p1 = strcmp (argv[optind], "-") == 0 ? stdin : xopen (argv[optind], "rbm");
-		p2 = strcmp (argv[optind+1], "-") == 0 ? stdin : xopen (argv[optind + 1], "rbm");
+		p1 = strcmp (argv[optind], "-") == 0 ? stdin : xopen (argv[optind], PERF_OPEN_FLAGS);
+		p2 = strcmp (argv[optind+1], "-") == 0 ? stdin : xopen (argv[optind + 1], PERF_OPEN_FLAGS);
 	}
 
 	p1 = convert_to_unified (p1, "rb", 1);

@@ -88,3 +88,9 @@ ssize_t getline(char **line, size_t *n, FILE *f);
 extern void error (int status, int errnum, const char *format, ...)
 	FORMAT ((__printf__, 3, 4));
 #endif /* HAVE_ERROR */
+
+#ifndef _WIN32
+#define PERF_OPEN_FLAGS "rbm"
+#else
+#define PERF_OPEN_FLAGS "rb"
+#endif

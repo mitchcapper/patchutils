@@ -2179,7 +2179,7 @@ int main (int argc, char *argv[])
 			if (unzip) {
 				f = xopen_unzip (argv[i], "rb");
 			} else {
-				f = xopen(argv[i], "rbm");
+				f = xopen(argv[i], PERF_OPEN_FLAGS);
 			}
 
 			f = convert_format (f, format);

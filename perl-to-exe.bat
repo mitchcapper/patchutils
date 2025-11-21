@@ -61,6 +61,7 @@ for %%a in ("%PATH:;=" "%") do (
     )
 )
 
+if defined WLB_PATH_ORIG set "CLEAN_PATH=!WLB_PATH_ORIG!;!CLEAN_PATH!"
 :: Reassemble PATH: Put clean Windows paths first, MSYS last
 if defined CLEAN_PATH set "CLEAN_PATH=!CLEAN_PATH:~1!"
 if defined MSYS_PATH set "MSYS_PATH=!MSYS_PATH:~1!"

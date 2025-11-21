@@ -89,3 +89,8 @@ man interdiff
 man filterdiff
 # etc.
 ```
+
+## Windows executable wrappers
+To create .exe's the makefile will automatically use pyinstaller for patchview (through `patchview/patchview-wrapper-to-exe.bat`).  This allows the symlinks to it for other tools to work.  For the 3 perl files in the scripts dir: unwrapdiff, splitdiff, recountdiff these can have similar done with the perl-to-exe.bat file.  Note both the perl/python programs require gcc to work.  Native (non-msys) Windows perl/python often include a version of gcc for this purpose.  For this reason both programs try to reset your path to prefer the non-msys paths first, and only fall back to msys perl/python.   If you want the msys perl/python versions to work you will likely need to install gcc in mysys.
+
+In terms of the perl versions the perl wrapped executables are `large` at 10MB in size.   While the python target is built by default the perl is not.  You must run `make scripts_perl_exe` and `make scripts_perl_exe_install` if you want them.  Both the required perl and python modules are installed to a local folder and does not install globally on the system.

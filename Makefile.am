@@ -1,5 +1,5 @@
 ACLOCAL_AMFLAGS = -I m4
-SUBDIRS = lib
+ SUBDIRS = lib 
 
 DISTCLEANFILES = src/stamp-h[0-9]* src/config.h
 
@@ -151,28 +151,28 @@ $(patchview_links): patchview/patchview-wrapper$(EXEEXT)
 	ln -sf $(notdir $<) $@
 
 patchview/patchview-wrapper$(EXEEXT): 
-	patchview/patchview-wrapper-to-exe.bat
+	./patchview/patchview-wrapper-to-exe.sh
 
-if BUILD_PERL_EXE
+if TARGET_IS_WINDOWS
+
+.PHONY: scripts_perl_exe_install
+
 scripts_perl_exe: scripts/unwrapdiff$(EXEEXT) scripts/splitdiff$(EXEEXT) scripts/recountdiff$(EXEEXT)
-
-if BUILD_PERL_EXE
 scripts/unwrapdiff$(EXEEXT): scripts/unwrapdiff
 	./perl-to-exe.bat scripts/unwrapdiff
-if BUILD_PERL_EXE
 scripts/splitdiff$(EXEEXT): scripts/splitdiff
 	./perl-to-exe.bat scripts/splitdiff	
-if BUILD_PERL_EXE
 scripts/recountdiff$(EXEEXT): scripts/recountdiff
 	./perl-to-exe.bat scripts/recountdiff
 
-if BUILD_PERL_EXE
 scripts_perl_exe_install: scripts_perl_exe
 	$(MKDIR_P) $(DESTDIR)$(bindir)
+	rm --force $(DESTDIR)$(bindir)/recountdiff.exe $(DESTDIR)$(bindir)/splitdiff.exe $(DESTDIR)$(bindir)/unwrapdiff.exe || true
 	$(INSTALL_PROGRAM) scripts/unwrapdiff.exe $(DESTDIR)$(bindir)/unwrapdiff.exe
 	$(INSTALL_PROGRAM) scripts/splitdiff.exe $(DESTDIR)$(bindir)/splitdiff.exe
 	$(INSTALL_PROGRAM) scripts/recountdiff.exe $(DESTDIR)$(bindir)/recountdiff.exe
 
+endif 
 
 # Ensure all symlinks are created during build
 all-local: $(interdiff_links) $(filterdiff_links) src/lsdiff$(EXEEXT) src/grepdiff$(EXEEXT)

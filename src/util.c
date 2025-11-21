@@ -36,16 +36,17 @@
 #include <string.h>
 #include <limits.h>
 #include <time.h>
-#ifdef HAVE_UNISTD_H
+
 # include <unistd.h>
-#endif /* HAVE_UNISTD_H */
+
 #include <errno.h>
 #ifdef HAVE_SYS_TYPES_H
 # include <sys/types.h>
 #endif /* HAVE_SYS_TYPES_H */
-#ifdef HAVE_SYS_WAIT_H
+
 # include <sys/wait.h>
-#endif /* HAVE_SYS_WAIT_H */
+
+#include <spawn.h>
 
 #include "util.h"
 #include "diff.h"
@@ -97,50 +98,40 @@ int xmkstemp (char *pattern)
 
 FILE *xtmpfile (void)
 {
-	FILE *ret;
-	char *tmpfname;
-	char *tmpdir = getenv ("TMPDIR");
-	size_t tmpdirlen;
-	int fd;
-
-	if (tmpdir == NULL || !strcmp (tmpdir, P_tmpdir))
-		return tmpfile ();
-
-	tmpdirlen = strlen (tmpdir);
-	tmpfname = xmalloc (tmpdirlen + 8);
-	strcpy (tmpfname, tmpdir);
-	strcpy (tmpfname + tmpdirlen, "/XXXXXX");
-	fd = mkstemp (tmpfname);
-	ret = fdopen (fd, "w+b");
-	if (ret == NULL)
-		error (EXIT_FAILURE, errno, "fdopen");
-	unlink (tmpfname);
-	free (tmpfname);
-	return ret;
+	// using gnulibs tmpfile now
+	return tmpfile();
 }
 
-FILE *redirectfd (FILE* fd)
+FILE *redirectfd(FILE *fd)
 {
-	FILE *ret;
-	char *tmpfname;
-	char *tmpdir = getenv ("TMPDIR");
-	size_t tmpdirlen;
+    // gnulib's tmpfile() respects TMPDIR and handles correct placement/deletion on Windows
+    FILE *t = tmpfile();
+    if (t == NULL)
+        return NULL;
 
-	if (tmpdir == NULL) {
-		tmpdir = P_tmpdir;
-	}
+    int t_fd = _fileno(t);
+    int target_fd = _fileno(fd);
 
-	tmpdirlen = strlen (tmpdir);
-	tmpfname = xmalloc (tmpdirlen + 8);
-	strcpy (tmpfname, tmpdir);
-	strcpy (tmpfname + tmpdirlen, "/XXXXXX");
-	close(mkstemp(tmpfname));
-	ret = freopen (tmpfname, "w+b", fd);
-	if (ret == NULL)
-		error (EXIT_FAILURE, errno, "freopen");
-	unlink (tmpfname);
-	free (tmpfname);
-	return ret;
+    // Flush the original stream to ensure no previous output is lost or mixed
+    fflush(fd);
+
+    // _dup2(source, dest) closes 'dest' and makes it a copy of 'source'.
+    // This effectively redirects 'fd' to point to our temporary file.
+    if (_dup2(t_fd, target_fd) < 0) {
+        fclose(t);
+        return NULL;
+    }
+
+    // We can now close the helper stream 't'.
+    // The temporary file remains alive on disk because 'fd' (target_fd)
+    // now holds a reference to it. Windows will delete the file only
+    // when the LAST handle (fd) is closed.
+    fclose(t);
+
+    // Reset the error and EOF indicators on the redirected stream
+    clearerr(fd);
+
+    return fd;
 }
 
 /*

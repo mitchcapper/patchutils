@@ -32,6 +32,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <spawn.h>       /* Added for posix_spawn */
+
+#ifdef HAVE_SYS_WAIT_H
+# include <sys/wait.h>    /* Added for waitpid */
+#endif
 
 #ifdef HAVE_SYS_TYPES_H
 # include <sys/types.h>

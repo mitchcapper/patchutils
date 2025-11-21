@@ -24,9 +24,8 @@
 #include "config.h"
 #endif
 
-#ifdef HAVE_ALLOCA_H
 # include <alloca.h>
-#endif /* HAVE_ALLOCA_H */
+
 #include <assert.h>
 #ifdef HAVE_ERROR_H
 # include <error.h>
@@ -37,16 +36,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HAVE_UNISTD_H
+
 # include <unistd.h>
-#endif /* HAVE_UNISTD_H */
+
 #include <getopt.h>
 #ifdef HAVE_SYS_TYPES_H
 # include <sys/types.h>
 #endif /* HAVE_SYS_TYPES_H */
-#ifdef HAVE_SYS_WAIT_H
 # include <sys/wait.h>
-#endif /* HAVE_SYS_WAIT_H */
 
 #include "util.h"
 #include "diff.h"
@@ -57,6 +54,10 @@
 
 #ifndef PATCH
 #define PATCH "patch"
+#endif
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
 
 /* Line type for coloring */
@@ -129,12 +130,22 @@ static struct file_list *files_done = NULL;
 static struct file_list *files_in_patch2 = NULL;
 static struct file_list *files_in_patch1 = NULL;
 
+#if defined(_MSC_VER)
+    #include <sal.h>
+    #define PRINTF_FORMAT_STRING _Printf_format_string_
+    #define PRINTF_ATTRIBUTE(fmt_idx, arg_idx)
+#elif defined(__GNUC__) || defined(__clang__)
+    #define PRINTF_FORMAT_STRING
+    #define PRINTF_ATTRIBUTE(fmt_idx, arg_idx) __attribute__((__format__(printf, fmt_idx, arg_idx)))
+#else
+    #define PRINTF_FORMAT_STRING
+    #define PRINTF_ATTRIBUTE(fmt_idx, arg_idx)
+#endif
 /*
  * Print colored output using a variadic format string.
  */
-static void __attribute__((__format__(printf, 3, 4)))
-print_color (FILE *output_file, enum line_type type, const char *format, ...)
-{
+static void PRINTF_ATTRIBUTE(3, 4)
+print_color(FILE *output_file, enum line_type type, PRINTF_FORMAT_STRING const char *format, ...){
 	const char *color_start = NULL;
 	va_list args;
 
@@ -154,6 +165,23 @@ print_color (FILE *output_file, enum line_type type, const char *format, ...)
 	/* Print color end code */
 	if (color_start)
 		fputs ("\033[0m", output_file);
+}
+
+static const char * GetTmpPath(){ 
+#ifndef _WIN32
+	return P_tmpdir;
+#else
+	static char * tmpPath = NULL;
+	if (tmpPath == NULL){
+
+		char buffer[MAX_PATH];
+		DWORD length = GetTempPath2A(MAX_PATH, buffer);
+		if (length > 0 && length < MAX_PATH) {
+			tmpPath = _strdup(buffer);
+		}
+	}
+	return tmpPath;
+#endif
 }
 
  /* checks whether file needs processing and sets context */
@@ -824,7 +852,7 @@ output_patch1_only (FILE *p1, FILE *out, int not_reverted)
 	/* We want to redo the diff using the supplied options. */
 	tmpdir = getenv ("TMPDIR");
 	if (!tmpdir)
-		tmpdir = P_tmpdir;
+		tmpdir = GetTmpPath();
 
 	tmplen = strlen (tmpdir);
 	tmpp1 = alloca (tmplen + sizeof (tail1));
@@ -880,7 +908,7 @@ output_patch1_only (FILE *p1, FILE *out, int not_reverted)
 	clear_lines_info (&file_new);
 
 	fflush (NULL);
-	char *argv[2 + num_diff_opts + 2 + 1];
+	char **argv = alloca((2 + num_diff_opts + 2 + 1) * sizeof(char *));
 	memcpy (argv, ((const char *[]) { DIFF, options }), 2 * sizeof (char *));
 	memcpy (argv + 2, diff_opts, num_diff_opts * sizeof (char *));
 	memcpy (argv + 2 + num_diff_opts, ((char *[]) { tmpp1, tmpp2, NULL }), (2 + 1) * sizeof (char *));
@@ -928,6 +956,7 @@ output_patch1_only (FILE *p1, FILE *out, int not_reverted)
 		unlink (tmpp1);
 		unlink (tmpp2);
 	}
+	free (argv);
 	free (oldname);
 	free (newname);
 	return 0;
@@ -1174,7 +1203,7 @@ output_delta (FILE *p1, FILE *p2, FILE *out)
 	pristine2 = ftell (p2);
 
 	if (!tmpdir)
-		tmpdir = P_tmpdir;
+		tmpdir = GetTmpPath();
 
 	tmplen = strlen (tmpdir);
 	tmpp1 = alloca (tmplen + sizeof (tail1));
@@ -1259,7 +1288,7 @@ output_delta (FILE *p1, FILE *p2, FILE *out)
 
 	fflush (NULL);
 
-	char *argv[2 + num_diff_opts + 2 + 1];
+	char **argv = alloca((2 + num_diff_opts + 2 + 1) * sizeof(char *));
 	memcpy (argv, ((const char *[]) { DIFF, options }), 2 * sizeof (char *));
 	memcpy (argv + 2, diff_opts, num_diff_opts * sizeof (char *));
 	memcpy (argv + 2 + num_diff_opts, ((char *[]) { tmpp1, tmpp2, NULL }), (2 + 1) * sizeof (char *));
@@ -1350,6 +1379,7 @@ output_delta (FILE *p1, FILE *p2, FILE *out)
 		unlink (tmpp1);
 		unlink (tmpp2);
 	}
+	free(argv);
 	free (oldname);
 	free (newname);
 	clear_lines_info (&file);
@@ -1678,7 +1708,7 @@ take_diff (const char *f1, const char *f2, char *headers[2],
 	else
 		sprintf (options, "-U%d", max_context);
 
-	char *argv[2 + num_diff_opts + 2 + 1];
+	char **argv = alloca((2 + num_diff_opts + 2 + 1) * sizeof(char *));
 	memcpy (argv, ((const char *[]) { DIFF, options }), 2 * sizeof (char *));
 	memcpy (argv + 2, diff_opts, num_diff_opts * sizeof (char *));
 	memcpy (argv + 2 + num_diff_opts, ((const char *[]) { f1, f2, NULL }), (2 + 1) * sizeof (char *));
@@ -1723,6 +1753,7 @@ take_diff (const char *f1, const char *f2, char *headers[2],
 
 	fclose (in);
 	waitpid (child, NULL, 0);
+	free(argv);
 	return 0;
 }
 
@@ -1775,7 +1806,7 @@ flipdiff (FILE *p1, FILE *p2, FILE *flip1, FILE *flip2)
 
 	/* Generate temporary file name templates. */
 	if (!tmpdir)
-		tmpdir = P_tmpdir;
+		tmpdir = GetTmpPath();
 
 	tmplen = strlen (tmpdir);
 	tmpp1 = alloca (tmplen + sizeof (tail1));

@@ -43,6 +43,9 @@
 #endif /* HAVE_SYS_WAIT_H */
 
 #include "diff.h"
+extern void diff_set_exec_path(const char *path);
+extern int diff_handle_internal_conversion(const char *mode);
+
 #include "util.h"
 
 #ifndef DIFF
@@ -1074,6 +1077,16 @@ int main (int argc, char *argv[])
 	/* name to use in error messages */
 	set_progname ("rediff");
 	int inplace_mode = 0;
+	/* 1. Tell the diff module where the current executable is located */
+    diff_set_exec_path(argv[0]);
+
+    /* 2. Check for the internal dispatch flag. 
+       If found, run the conversion logic and exit immediately. */
+    if (argc == 2 && strncmp(argv[1], "--internal-convert-", 19) == 0) {
+        /* The mode is the part after the prefix (e.g. "context" or "unified") */
+        const char *mode = argv[1] + 19; 
+        return diff_handle_internal_conversion(mode);
+    }
 
 	while (1) {
 		static struct option long_options[] = {

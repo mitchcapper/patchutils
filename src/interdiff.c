@@ -47,6 +47,10 @@
 
 #include "util.h"
 #include "diff.h"
+/* Add these prototypes so main knows about the new functions in diff.c */
+extern void diff_set_exec_path(const char *path);
+extern int diff_handle_internal_conversion(const char *mode);
+
 
 #ifndef DIFF
 #define DIFF "diff"
@@ -2302,7 +2306,17 @@ main (int argc, char *argv[])
 {
 	FILE *p1, *p2;
 	int ret;
+	/* 1. Tell the diff module where the current executable is located */
+    diff_set_exec_path(argv[0]);
 
+    /* 2. Check for the internal dispatch flag. 
+       If found, run the conversion logic and exit immediately. */
+    if (argc == 2 && strncmp(argv[1], "--internal-convert-", 19) == 0) {
+        /* The mode is the part after the prefix (e.g. "context" or "unified") */
+        const char *mode = argv[1] + 19; 
+        return diff_handle_internal_conversion(mode);
+    }
+	
 	get_mode_from_name (argv[0]);
 	for (;;) {
 		static struct option long_options[] = {

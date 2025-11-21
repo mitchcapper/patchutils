@@ -297,59 +297,90 @@ FILE *xopen_unzip (const char *name, const char *mode)
 	return fo;
 }
 
-/* safe pipe/popen.  mode is either "r" or "w" */
+/* safe pipe/popen using posix_spawn. mode is either "r" or "w" */
 FILE * xpipe(const char * cmd, pid_t *pid, const char *mode, char *const argv[])
 {
-	int fildes[2];
-	int child;
-	FILE *res;
+    int fildes[2];
+    pid_t child;
+    FILE *res;
+    posix_spawn_file_actions_t actions;
+    int err;
 
-	if (!mode || (*mode != 'r' && *mode != 'w'))
-		error (EXIT_FAILURE, 0, "xpipe: bad mode: %s", mode);
+    if (!mode || (*mode != 'r' && *mode != 'w'))
+        error(EXIT_FAILURE, 0, "xpipe: bad mode: %s", mode);
 
-	fflush (NULL);
-	if (pipe (fildes) == -1)
-		error (EXIT_FAILURE, errno, "pipe failed");
-	child = fork ();
-	if (child == -1) {
-		perror ("fork");
-		exit (1);
-	}
-	if (child == 0) {
-		if (*mode == 'r') {
-			close (fildes[0]);
-			close (1);
-			if (dup (fildes[1]) == -1)
-				error (EXIT_FAILURE, errno, "dup failed");
-			close (fildes[1]);
-		} else {
-			close (fildes[1]);
-			close (1);
-			if (dup(2) == -1)
-				error (EXIT_FAILURE, errno, "dup failed");
-			close (0);
-			if (dup (fildes[0]) == -1)
-				error (EXIT_FAILURE, errno, "dup failed");
-			close (fildes[0]);
-		}
-		execvp (cmd, argv);
-		/* Shouldn't get here */
-		error (EXIT_FAILURE, errno, "execvp");
-	}
-	if (pid != NULL)
-		*pid = child;
+    fflush(NULL);
+    if (pipe(fildes) == -1)
+        error(EXIT_FAILURE, errno, "pipe failed");
 
-	if (*mode == 'r') {
-		close (fildes[1]);
-		res = fdopen (fildes[0], "r");
-	} else {
-		close (fildes[0]);
-		res = fdopen (fildes[1], "w");
-	}
-	if (res == NULL)
-		error (EXIT_FAILURE, errno, "fdopen");
+    /* Initialize the file actions object */
+    if ((err = posix_spawn_file_actions_init(&actions)) != 0)
+        error(EXIT_FAILURE, err, "posix_spawn_file_actions_init");
 
-	return res;
+    if (*mode == 'r') {
+        /* Mode 'r': Parent reads from pipe, Child writes to stdout. */
+        
+        /* Child: dup2(fildes[1], STDOUT_FILENO) */
+        /* This effectively closes stdout and replaces it with the pipe write end */
+        if ((err = posix_spawn_file_actions_adddup2(&actions, fildes[1], STDOUT_FILENO)) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_adddup2");
+
+        /* Child: Close the original pipe descriptors (cleanup) */
+        if ((err = posix_spawn_file_actions_addclose(&actions, fildes[0])) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_addclose");
+        if ((err = posix_spawn_file_actions_addclose(&actions, fildes[1])) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_addclose");
+
+    } else {
+        /* Mode 'w': Parent writes to pipe, Child reads from stdin. */
+
+        /* Original logic: stdout (1) is closed and replaced by a copy of stderr (2).
+           dup2(STDERR_FILENO, STDOUT_FILENO) handles this atomic replacement. */
+        if ((err = posix_spawn_file_actions_adddup2(&actions, STDERR_FILENO, STDOUT_FILENO)) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_adddup2");
+
+        /* Child: dup2(fildes[0], STDIN_FILENO) */
+        /* This effectively closes stdin and replaces it with the pipe read end */
+        if ((err = posix_spawn_file_actions_adddup2(&actions, fildes[0], STDIN_FILENO)) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_adddup2");
+
+        /* Child: Close the original pipe descriptors (cleanup) */
+        if ((err = posix_spawn_file_actions_addclose(&actions, fildes[0])) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_addclose");
+        if ((err = posix_spawn_file_actions_addclose(&actions, fildes[1])) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_addclose");
+    }
+
+    /* Spawn the process */
+    /* posix_spawnp searches PATH, matching the behavior of execvp */
+    err = posix_spawnp(&child, cmd, &actions, NULL, argv, environ);
+
+    /* Destroy actions object regardless of success */
+    posix_spawn_file_actions_destroy(&actions);
+
+    if (err != 0) {
+        /* posix_spawn returns the error code directly; it does not set errno. */
+        close(fildes[0]);
+        close(fildes[1]);
+        error(EXIT_FAILURE, err, "posix_spawnp");
+    }
+
+    if (pid != NULL)
+        *pid = child;
+
+    /* Parent file descriptor handling */
+    if (*mode == 'r') {
+        close(fildes[1]);
+        res = fdopen(fildes[0], "r");
+    } else {
+        close(fildes[0]);
+        res = fdopen(fildes[1], "w");
+    }
+
+    if (res == NULL)
+        error(EXIT_FAILURE, errno, "fdopen");
+
+    return res;
 }
 
 

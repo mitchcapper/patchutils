@@ -42,13 +42,24 @@
 # include <sys/types.h>
 #endif /* HAVE_SYS_TYPES_H */
 
-#ifdef HAVE_UNISTD_H
 # include <unistd.h>
-#endif /* HAVE_UNISTD_H */
 
 #include "diff.h"
 #include "util.h"
 
+/* Required for posix_spawn to inherit environment */
+extern char **environ;
+
+/* Global to store the path to the current executable (must be set by main) */
+static const char *g_diff_exec_path = "diff";
+
+void diff_set_exec_path(const char *path)
+{
+    if (path && *path)
+        g_diff_exec_path = path;
+}
+
+/* Existing helper functions (unchanged) */
 int num_pathname_components (const char *x)
 {
         int num = 0;
@@ -914,121 +925,150 @@ static void do_convert_to_unified (void)
 	return;
 }
 
+/* 
+ * Helper to run the logic requested by the new process.
+ * Called by main() when it detects the internal flag.
+ */
+int diff_handle_internal_conversion(const char *mode)
+{
+    if (strcmp(mode, "context") == 0) {
+        do_convert_to_context();
+        return 0;
+    } else if (strcmp(mode, "unified") == 0) {
+        do_convert_to_unified();
+        return 0;
+    }
+    return 1;
+}
+
+
 static FILE *do_convert (FILE *f, const char *mode, int seekable,
-			 void (*fn) (void))
+			 const char *conversion_type)
 {
 	int fildes[2];
 	int fd = fileno (f);
 	FILE *ret;
+	pid_t child;
+    posix_spawn_file_actions_t actions;
+    int err;
+    /* We construct arguments: argv[0] (self), flag, NULL */
+    char flag_buf[64];
+    char *child_argv[3];
+
+    snprintf(flag_buf, sizeof(flag_buf), "--internal-convert-%s", conversion_type);
+    child_argv[0] = (char *)g_diff_exec_path; /* cast const away */
+    child_argv[1] = flag_buf;
+    child_argv[2] = NULL;
 
 	fflush (NULL);
+
+    /* --- MODE 'r': READ from conversion ---
+       Parent Reads from Pipe.
+       Child Writes to Pipe.
+       Child Reads from 'f'. 
+    */
 	if (strchr (mode, 'r')) {
 		if (strchr (mode, 'w') || strchr (mode, '+'))
-			/* Can't do bidirectional conversions. */
-			return NULL;
-
-		/* Read from f (which may be in unified format), and
-		 * return a FILE* that gives context format when
-		 * read. */
+			return NULL; /* Can't do bidirectional conversions. */
 
 		if (pipe (fildes))
 			error (EXIT_FAILURE, errno, "pipe failed");
 
-		switch (fork ()) {
-		case -1:
-			error (EXIT_FAILURE, errno, "fork failed");
+        if ((err = posix_spawn_file_actions_init(&actions)) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_init");
 
-		default:
-			/* Parent. */
-			close (fildes[1]);
-			ret = fdopen (fildes[0], mode);
-			if (!ret)
-			    error (EXIT_FAILURE, errno, "fdopen failed");
+        /* Child: Redirect stdin from 'f' */
+        if (fd != STDIN_FILENO)
+            if ((err = posix_spawn_file_actions_adddup2(&actions, fd, STDIN_FILENO)) != 0)
+                 error(EXIT_FAILURE, err, "posix_spawn_file_actions_adddup2 (stdin)");
 
-			if (seekable) {
-				FILE *tmp = xtmpfile ();
-				while (!feof (ret)) {
-					int c = fgetc (ret);
+        /* Child: Redirect stdout to pipe write end */
+        if ((err = posix_spawn_file_actions_adddup2(&actions, fildes[1], STDOUT_FILENO)) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_adddup2 (stdout)");
 
-					if (c == EOF)
-						break;
+        /* Child: Close unused pipe ends */
+        posix_spawn_file_actions_addclose(&actions, fildes[0]);
+        posix_spawn_file_actions_addclose(&actions, fildes[1]);
+        /* If we duped 'f' to stdin, we should close the original fd in child to be clean, 
+           but strictly not required unless fd==fildes[0] or [1] (unlikely). 
+           If fd is not STDIN, we can close it in child. */
+        if (fd != STDIN_FILENO)
+             posix_spawn_file_actions_addclose(&actions, fd);
 
-					fputc (c, tmp);
-				}
+        /* Spawn */
+        err = posix_spawnp(&child, g_diff_exec_path, &actions, NULL, child_argv, environ);
+        posix_spawn_file_actions_destroy(&actions);
 
-				fclose (ret);
-				rewind (tmp);
-				return tmp;
-			}
+        if (err != 0) {
+            close(fildes[0]);
+            close(fildes[1]);
+            error(EXIT_FAILURE, err, "posix_spawnp failed");
+        }
 
-			return ret;
+        /* Parent Logic */
+        close (fildes[1]); /* Close write end */
+        ret = fdopen (fildes[0], mode);
+        if (!ret)
+            error (EXIT_FAILURE, errno, "fdopen failed");
 
-		case 0:
-			/* Child. */
-#ifdef PROFILE
-			{
-				extern void _start (void), etext (void);
-				monstartup ((u_long) &_start, (u_long) &etext);
-			}
-#endif
-#ifdef DEBUG
-			sleep (10);
-#endif /* DEBUG */
-			close (fildes[0]);
-
-			if (fd != STDIN_FILENO) {
-				dup2 (fd, STDIN_FILENO);
-				fclose (f);
-			}
-
-			if (fildes[1] != STDOUT_FILENO)
-				dup2 (fildes[1], STDOUT_FILENO);
-
-			(*fn) ();
-			exit (0);
-		}
+        if (seekable) {
+            FILE *tmp = xtmpfile ();
+            while (!feof (ret)) {
+                int c = fgetc (ret);
+                if (c == EOF) break;
+                fputc (c, tmp);
+            }
+            fclose (ret);
+            rewind (tmp);
+            /* We don't wait for child here explicitly, usually reliance on pipe EOF 
+               or later wait calls. Original code didn't waitpid here. */
+            return tmp;
+        }
+        return ret;
 	}
+    /* --- MODE 'w': WRITE to conversion ---
+       Parent Writes to Pipe.
+       Child Reads from Pipe.
+       Child Writes to 'f'.
+    */
 	else if (strchr (mode, 'w')) {
 		if (strchr (mode, 'r') || strchr (mode, '+'))
-			/* Can't do bidirectional conversions. */
 			return NULL;
-
-		/* Return a FILE* that, when written in unified
-		 * format, sends cnotext format to f. */
 
 		if (pipe (fildes))
 			error (EXIT_FAILURE, errno, "pipe failed");
 
-		switch (fork ()) {
-		case -1:
-			error (EXIT_FAILURE, errno, "fork failed");
+        if ((err = posix_spawn_file_actions_init(&actions)) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_init");
 
-		default:
-			/* Parent. */
-			close (fildes[1]);
-			return fdopen (fildes[1], mode);
+        /* Child: Redirect stdin from pipe read end */
+        if ((err = posix_spawn_file_actions_adddup2(&actions, fildes[0], STDIN_FILENO)) != 0)
+            error(EXIT_FAILURE, err, "posix_spawn_file_actions_adddup2 (stdin)");
 
-		case 0:
-			/* Child. */
-#ifdef PROFILE
-			{
-				extern void _start (void), etext (void);
-				monstartup ((u_long) &_start, (u_long) &etext);
-			}
-#endif
-			close (fildes[0]);
+        /* Child: Redirect stdout to 'f' */
+        if (fd != STDOUT_FILENO)
+            if ((err = posix_spawn_file_actions_adddup2(&actions, fd, STDOUT_FILENO)) != 0)
+                 error(EXIT_FAILURE, err, "posix_spawn_file_actions_adddup2 (stdout)");
 
-			if (fildes[0] != STDIN_FILENO)
-				dup2 (fildes[0], STDIN_FILENO);
+        /* Child: Close unused pipe ends */
+        posix_spawn_file_actions_addclose(&actions, fildes[0]);
+        posix_spawn_file_actions_addclose(&actions, fildes[1]);
+        if (fd != STDOUT_FILENO)
+            posix_spawn_file_actions_addclose(&actions, fd);
 
-			if (fd != STDOUT_FILENO) {
-				dup2 (fd, STDOUT_FILENO);
-				fclose (f);
-			}
+        /* Spawn */
+        err = posix_spawnp(&child, g_diff_exec_path, &actions, NULL, child_argv, environ);
+        posix_spawn_file_actions_destroy(&actions);
 
-			(*fn) ();
-			exit (0);
-		}
+        if (err != 0) {
+            close(fildes[0]);
+            close(fildes[1]);
+            error(EXIT_FAILURE, err, "posix_spawnp failed");
+        }
+
+        /* Parent Logic */
+        close (fildes[0]); /* Close read end */
+        return fdopen (fildes[1], mode);
 	}
 
 	return NULL;
@@ -1036,12 +1076,12 @@ static FILE *do_convert (FILE *f, const char *mode, int seekable,
 
 FILE *convert_to_context (FILE *f, const char *mode, int seekable)
 {
-	return do_convert (f, mode, seekable, do_convert_to_context);
+	return do_convert (f, mode, seekable, "context");
 }
 
 FILE *convert_to_unified (FILE *f, const char *mode, int seekable)
 {
-	return do_convert (f, mode, seekable, do_convert_to_unified);
+	return do_convert (f, mode, seekable, "unified");
 }
 
 static int

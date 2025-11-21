@@ -35,8 +35,17 @@ enviro = os.environ
 workdir = '.'
 editor = os.environ.get("EDITOR", "vim")
 
+# for windows this can work but it will end up with .exe on the command and not the executable and need them for the executables
+is_windows = (os.name == 'nt')
+exe_suffix = ".exe" if is_windows else ""
+
 tools = ["git", "svn"]
 prog = os.path.basename(sys.argv[0])
+
+# If argv[0] ends with .exe strip that off
+if is_windows and prog.lower().endswith(".exe"):
+    prog = prog[:-4]
+
 
 tool = None
 for t in tools:
@@ -60,17 +69,25 @@ args, unknown = parser.parse_known_args()
 largs = vars(args).get("git_args")
 rargs = vars(args).get("patchview_args")
 
+# Determine the actual executable name for the tool (e.g., git.exe or svn.exe)
+tool_exec = tool + exe_suffix
+
 if tool_cmd.endswith("view"):
     # pipeline: first_pipe | second_pipe | editor
     tool_cmd = tool_cmd[:-4]  # remove "view"
-    git_cmd = [tool, tool_cmd] + largs
-    patchview_cmd = ["filterdiff"] + rargs + unknown
-
+    
+    # Add .exe to commands if on Windows
+    git_cmd = [tool_exec, tool_cmd] + largs
+    patchview_cmd = ["filterdiff" + exe_suffix] + rargs + unknown
+    
     p1 = Popen(git_cmd, stdout=PIPE, env=enviro, cwd='.')
     p2 = Popen(patchview_cmd, stdin=p1.stdout, stdout=PIPE, env=enviro, cwd=workdir)
     p1.stdout.close()
 
-    dest_cmd = [editor, "-R", "-"]
+    # Attempt to add .exe to editor if needed, though usually EDITOR var is preserved
+    editor_cmd = editor + exe_suffix if (is_windows and not editor.endswith(".exe")) else editor
+    dest_cmd = [editor_cmd, "-R", "-"]
+    
     p3 = Popen(dest_cmd, stdin=PIPE)
     if args.debug:
         debug_str = "%s | %s | %s\n" % (" ".join(git_cmd),
@@ -88,8 +105,11 @@ if tool_cmd.endswith("view"):
     p3.wait()
 else:
     # pipeline normal: tool cmd | patchview
-    git_cmd = [tool, tool_cmd] + largs
-    patchview_cmd = ["patchview"] + rargs + unknown
+    
+    # Add .exe to commands if on Windows
+    git_cmd = [tool_exec, tool_cmd] + largs
+    patchview_cmd = ["patchview" + exe_suffix] + rargs + unknown
+    
 
     p1 = Popen(git_cmd, stdout=PIPE, env=os.environ, cwd='.')
     p2 = Popen(patchview_cmd, stdin=p1.stdout, stdout=PIPE, env=enviro, cwd=workdir)

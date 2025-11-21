@@ -191,7 +191,8 @@ AM_CONDITIONAL([USE_SCANNER_PATCHFILTER], [test "x$enable_scanner_patchfilter" =
 if test "x$enable_scanner_patchfilter" = xyes; then
     AC_DEFINE([USE_SCANNER_PATCHFILTER], [1], [Build scanner-based patchfilter tool])
 fi
-
+if 
+AM_CONDITIONAL([BUILD_PERL_EXE], [test "x$EXEEXT" = "x.exe"])
 gl_INIT
 
 AC_CONFIG_FILES([

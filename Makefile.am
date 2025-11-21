@@ -150,6 +150,30 @@ $(filterdiff_links): src/filterdiff$(EXEEXT)
 $(patchview_links): patchview/patchview-wrapper$(EXEEXT)
 	ln -sf $(notdir $<) $@
 
+patchview/patchview-wrapper$(EXEEXT): 
+	patchview/patchview-wrapper-to-exe.bat
+
+if BUILD_PERL_EXE
+scripts_perl_exe: scripts/unwrapdiff$(EXEEXT) scripts/splitdiff$(EXEEXT) scripts/recountdiff$(EXEEXT)
+
+if BUILD_PERL_EXE
+scripts/unwrapdiff$(EXEEXT): scripts/unwrapdiff
+	./perl-to-exe.bat scripts/unwrapdiff
+if BUILD_PERL_EXE
+scripts/splitdiff$(EXEEXT): scripts/splitdiff
+	./perl-to-exe.bat scripts/splitdiff	
+if BUILD_PERL_EXE
+scripts/recountdiff$(EXEEXT): scripts/recountdiff
+	./perl-to-exe.bat scripts/recountdiff
+
+if BUILD_PERL_EXE
+scripts_perl_exe_install: scripts_perl_exe
+	$(MKDIR_P) $(DESTDIR)$(bindir)
+	$(INSTALL_PROGRAM) scripts/unwrapdiff.exe $(DESTDIR)$(bindir)/unwrapdiff.exe
+	$(INSTALL_PROGRAM) scripts/splitdiff.exe $(DESTDIR)$(bindir)/splitdiff.exe
+	$(INSTALL_PROGRAM) scripts/recountdiff.exe $(DESTDIR)$(bindir)/recountdiff.exe
+
+
 # Ensure all symlinks are created during build
 all-local: $(interdiff_links) $(filterdiff_links) src/lsdiff$(EXEEXT) src/grepdiff$(EXEEXT)
 	@test -d patchview || mkdir -p patchview

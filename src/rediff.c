@@ -41,7 +41,9 @@
 #ifdef HAVE_SYS_WAIT_H
 # include <sys/wait.h>
 #endif /* HAVE_SYS_WAIT_H */
-
+#ifdef _WIN32
+#include <fcntl.h>
+#endif
 #include "diff.h"
 extern void diff_set_exec_path(const char *path);
 extern int diff_handle_internal_conversion(const char *mode);
@@ -1076,6 +1078,12 @@ int main (int argc, char *argv[])
 {
 	/* name to use in error messages */
 	set_progname ("rediff");
+
+#ifdef _WIN32
+	_setmode(_fileno(stdin), _O_BINARY);
+	_setmode(_fileno(stdout), _O_BINARY);
+#endif
+
 	int inplace_mode = 0;
 	/* 1. Tell the diff module where the current executable is located */
     diff_set_exec_path(argv[0]);

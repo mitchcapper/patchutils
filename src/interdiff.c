@@ -61,6 +61,7 @@ extern int diff_handle_internal_conversion(const char *mode);
 #endif
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#include <fcntl.h>
 #include <windows.h>
 #endif
 
@@ -2306,6 +2307,11 @@ main (int argc, char *argv[])
 {
 	FILE *p1, *p2;
 	int ret;
+#ifdef _WIN32
+	_setmode(_fileno(stdin), _O_BINARY);
+	_setmode(_fileno(stdout), _O_BINARY);
+#endif
+
 	/* 1. Tell the diff module where the current executable is located */
     diff_set_exec_path(argv[0]);
 

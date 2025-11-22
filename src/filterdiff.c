@@ -44,6 +44,9 @@
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#endif
 
 #include "util.h"
 #include "diff.h"
@@ -1839,6 +1842,10 @@ int main (int argc, char *argv[])
 	int regex_file_specified = 0;
 	int have_switches = 0;
 	int inplace_mode = 0;
+#ifdef _WIN32
+	_setmode(_fileno(stdin), _O_BINARY);
+	_setmode(_fileno(stdout), _O_BINARY);
+#endif
   /* 1. Tell the diff module where the current executable is located */
     diff_set_exec_path(argv[0]);
 
